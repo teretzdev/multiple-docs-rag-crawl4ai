@@ -52,7 +52,7 @@ def chunk_text(text: str, max_tokens: int = 4000) -> List[str]:
     current_chunk = ""
     current_tokens = 0
 
-    for paragraph in text.split("\\\\\\\\n\\\\\\\\n"):
+    for paragraph in text.split("\\\\\\\\\n\\\\\\\\\n"):
         paragraph_tokens = num_tokens_from_string(paragraph)
         if current_tokens + paragraph_tokens > max_tokens:
             if current_chunk:
@@ -60,7 +60,7 @@ def chunk_text(text: str, max_tokens: int = 4000) -> List[str]:
             current_chunk = paragraph
             current_tokens = paragraph_tokens
         else:
-            current_chunk += "\\\\\\\\n\\\\\\\\n" + paragraph
+            current_chunk += "\\\\\\\\\n\\\\\\\\\n" + paragraph
             current_tokens += paragraph_tokens
 
     if current_chunk:
@@ -91,7 +91,7 @@ async def get_title_and_summary(chunk: str, url: str) -> Dict[str, str]:
                 model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"URL: {url}\\\\\\\\n\\\\\\\\nContent:\\\\\\\\n{chunk[:1000]}..."}  # Send first 1000 chars for context
+                    {"role": "user", "content": f"URL: {url}\\\\\\\\\n\\\\\\\\\nContent:\\\\\\\\\n{chunk[:1000]}..."}  # Send first 1000 chars for context
                 ],
                 response_format={ "type": "json_object" }
             ))
