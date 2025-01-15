@@ -7,6 +7,7 @@ import time
 import random
 import logging
 from xml.etree import ElementTree
+import os
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -50,7 +51,7 @@ def chunk_text(text: str, max_tokens: int = 4000) -> List[str]:
     current_chunk = ""
     current_tokens = 0
 
-    for paragraph in text.split("\\\\n\\\\n"):
+    for paragraph in text.split("\\\\\n\\\\\n"):
         paragraph_tokens = num_tokens_from_string(paragraph)
         if current_tokens + paragraph_tokens > max_tokens:
             if current_chunk:
@@ -58,7 +59,7 @@ def chunk_text(text: str, max_tokens: int = 4000) -> List[str]:
             current_chunk = paragraph
             current_tokens = paragraph_tokens
         else:
-            current_chunk += "\\\\n\\\\n" + paragraph
+            current_chunk += "\\\\\n\\\\\n" + paragraph
             current_tokens += paragraph_tokens
 
     if current_chunk:
@@ -89,7 +90,7 @@ async def get_title_and_summary(chunk: str, url: str) -> Dict[str, str]:
                 model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"URL: {url}\\\\n\\\\nContent:\\\\n{chunk[:1000]}..."}  # Send first 1000 chars for context
+                    {"role": "user", "content": f"URL: {url}\\\\\n\\\\\nContent:\\\\\n{chunk[:1000]}..."}  # Send first 1000 chars for context
                 ],
                 response_format={ "type": "json_object" }
             ))
@@ -160,8 +161,20 @@ async def insert_chunk(chunk: ProcessedChunk):
         print(f"Error inserting chunk: {e}")
         return None
 
+def get_file_size(url: str) -> int:
+    """Get the size of the file at the given URL."""
+    response = requests.head(url)
+    return int(response.headers.get('content-length', 0))
+
 async def process_and_store_document(url: str, markdown: str):
     """Process a document and store its chunks in parallel."""
+    current_file_size = get_file_size(url)
+    local_data = load_vector_data_offline(url)
+    
+    if local_data and local_data['file_size'] == current_file_size:
+        print(f"Loading vector data from local storage for {url}")
+        return local_data['chunks']
+    
     # Split into chunks
     chunks = chunk_text(markdown)
     
@@ -178,6 +191,9 @@ async def process_and_store_document(url: str, markdown: str):
         for chunk in processed_chunks
     ]
     await asyncio.gather(*insert_tasks)
+    
+    # Save vector data offline
+    save_vector_data_offline(url, processed_chunks, current_file_size)
     
     # Save vector data offline
     save_vector_data_offline(processed_chunks)
@@ -236,17 +252,26 @@ def get_pydantic_ai_docs_urls() -> List[str]:
         print(f"Error fetching sitemap: {e}")
         return []
 
-def save_vector_data_offline(chunks: List[ProcessedChunk], filename: str = 'vector_data.json'):
+def save_vector_data_offline(url: str, chunks: List[ProcessedChunk], file_size: int, filename: str = 'vector_data.json'):
     """Save processed chunks and their embeddings to a local file."""
-    data = [chunk.__dict__ for chunk in chunks]
+    data = {
+        'url': url,
+        'file_size': file_size,
+        'chunks': [chunk.__dict__ for chunk in chunks]
+    }
     with open(filename, 'w') as f:
         json.dump(data, f, indent=4)
 
-def load_vector_data_offline(filename: str = 'vector_data.json') -> List[ProcessedChunk]:
+def load_vector_data_offline(url: str, filename: str = 'vector_data.json') -> Optional[Dict[str, Any]]:
     """Load vector data from a local file."""
-    with open(filename, 'r') as f:
-        data = json.load(f)
-    return [ProcessedChunk(**chunk) for chunk in data]
+    try:
+        with open(filename, 'r') as f:
+            data = json.load(f)
+        if data['url'] == url:
+            return data
+    except FileNotFoundError:
+        return None
+    return None
 
 async def add_manual_text(text: str):
     """Add text manually for embedding and save it."""
@@ -260,7 +285,7 @@ async def add_manual_text(text: str):
     save_vector_data_offline([chunk])
 
 async def main():
-    choice = input("Choose an operation: 1) Crawl 2) Add Manual Text 3) CRUD Operations 4) Use Flash Model\\\n")
+    choice = input("Choose an operation: 1) Crawl 2) Add Manual Text 3) CRUD Operations 4) Use Flash Model\\n")
     if choice == '1':
         # Get URLs from Pydantic AI docs
         urls = get_pydantic_ai_docs_urls()
@@ -271,7 +296,7 @@ async def main():
         print(f"Found {len(urls)} URLs to crawl")
         await crawl_parallel(urls)
     elif choice == '2':
-        text = input("Enter the text to add manually:\\\n")
+        text = input("Enter the text to add manually:\\\\n")
         await add_manual_text(text)
     elif choice == '3':
         print("CRUD operations are not yet implemented.")
