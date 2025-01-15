@@ -52,7 +52,7 @@ def chunk_text(text: str, max_tokens: int = 4000) -> List[str]:
     current_chunk = ""
     current_tokens = 0
 
-    for paragraph in text.split("\\\\\\n\\\\\\n"):
+    for paragraph in text.split("\\\\\\\n\\\\\\\n"):
         paragraph_tokens = num_tokens_from_string(paragraph)
         if current_tokens + paragraph_tokens > max_tokens:
             if current_chunk:
@@ -60,7 +60,7 @@ def chunk_text(text: str, max_tokens: int = 4000) -> List[str]:
             current_chunk = paragraph
             current_tokens = paragraph_tokens
         else:
-            current_chunk += "\\\\\\n\\\\\\n" + paragraph
+            current_chunk += "\\\\\\\n\\\\\\\n" + paragraph
             current_tokens += paragraph_tokens
 
     if current_chunk:
@@ -91,7 +91,7 @@ async def get_title_and_summary(chunk: str, url: str) -> Dict[str, str]:
                 model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"URL: {url}\\\\\\n\\\\\\nContent:\\\\\\n{chunk[:1000]}..."}  # Send first 1000 chars for context
+                    {"role": "user", "content": f"URL: {url}\\\\\\\n\\\\\\\nContent:\\\\\\\n{chunk[:1000]}..."}  # Send first 1000 chars for context
                 ],
                 response_format={ "type": "json_object" }
             ))
@@ -274,10 +274,28 @@ def load_vector_data_offline(url: str, filename: str = 'vector_data.json') -> Op
         return None
     return None
 
+def get_text_content(input_text: str) -> str:
+    """Get text content from a URL or local file path."""
+    try:
+        result = urlparse(input_text)
+        if all([result.scheme, result.netloc]):
+            # It's a URL
+            return requests.get(input_text).text
+        elif os.path.isfile(input_text):
+            # It's a local file
+            with open(input_text, 'r') as f:
+                return f.read()
+    except Exception as e:
+        print(f"Error fetching content: {e}")
+    # Return the input text as is if it's neither a URL nor a file
+    return input_text
+
 async def add_manual_text(text: str):
     """Add text manually for embedding and save it."""
-    # Process the text
-    chunk = await process_chunk(text, 0, "manual_input")
+    # Fetch the content
+    content = get_text_content(text)
+    # Process the content
+    chunk = await process_chunk(content, 0, "manual_input")
     
     # Insert into Supabase
     await insert_chunk(chunk)
@@ -302,7 +320,8 @@ async def main(args):
         print(f"Found {len(urls)} URLs to crawl")
         await crawl_parallel(urls)
     elif args.add_text:
-        await add_manual_text(args.add_text)
+        text_input = args.add_text
+        await add_manual_text(text_input)
     elif args.crud:
         print("CRUD operations are not yet implemented.")
     elif args.use_flash_model:
