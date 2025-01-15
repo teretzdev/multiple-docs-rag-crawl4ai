@@ -18,6 +18,7 @@ import tiktoken
 
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 from openai import AsyncOpenAI
+from gemi_flash import FlashModel  # Assuming gemi_flash is the module name
 from supabase import create_client, Client
 
 load_dotenv()
@@ -49,7 +50,7 @@ def chunk_text(text: str, max_tokens: int = 4000) -> List[str]:
     current_chunk = ""
     current_tokens = 0
 
-    for paragraph in text.split("\\\n\\\n"):
+    for paragraph in text.split("\\\\n\\\\n"):
         paragraph_tokens = num_tokens_from_string(paragraph)
         if current_tokens + paragraph_tokens > max_tokens:
             if current_chunk:
@@ -57,7 +58,7 @@ def chunk_text(text: str, max_tokens: int = 4000) -> List[str]:
             current_chunk = paragraph
             current_tokens = paragraph_tokens
         else:
-            current_chunk += "\\\n\\\n" + paragraph
+            current_chunk += "\\\\n\\\\n" + paragraph
             current_tokens += paragraph_tokens
 
     if current_chunk:
@@ -70,26 +71,32 @@ async def async_retry(coroutine):
     return await coroutine
 
 async def get_title_and_summary(chunk: str, url: str) -> Dict[str, str]:
-    """Extract title and summary using GPT-4."""
-    system_prompt = """You are an AI that extracts titles and summaries from documentation chunks.
-    Return a JSON object with 'title' and 'summary' keys.
-    For the title: If this seems like the start of a document, extract its title. If it's a middle chunk, derive a descriptive title.
-    For the summary: Create a concise summary of the main points in this chunk.
-    Keep both title and summary concise but informative."""
+    """Extract title and summary using the specified model."""
+    use_flash_model = os.getenv("USE_FLASH_MODEL", "false").lower() == "true"
     
-    try:
-        response = await async_retry(openai_client.chat.completions.create(
-            model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"URL: {url}\\\n\\\nContent:\\\n{chunk[:1000]}..."}  # Send first 1000 chars for context
-            ],
-            response_format={ "type": "json_object" }
-        ))
-        return json.loads(response.choices[0].message.content)
-    except Exception as e:
-        logger.error(f"Error in API call: {e}", exc_info=True)
-        return {"title": "Error processing title", "summary": "Error processing summary"}
+    if use_flash_model:
+        flash_model = FlashModel(api_key=os.getenv("GEMI_FLASH_API_KEY"))
+        return flash_model.extract_title_and_summary(chunk, url)
+    else:
+        system_prompt = """You are an AI that extracts titles and summaries from documentation chunks.
+        Return a JSON object with 'title' and 'summary' keys.
+        For the title: If this seems like the start of a document, extract its title. If it's a middle chunk, derive a descriptive title.
+        For the summary: Create a concise summary of the main points in this chunk.
+        Keep both title and summary concise but informative."""
+        
+        try:
+            response = await async_retry(openai_client.chat.completions.create(
+                model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"URL: {url}\\\\n\\\\nContent:\\\\n{chunk[:1000]}..."}  # Send first 1000 chars for context
+                ],
+                response_format={ "type": "json_object" }
+            ))
+            return json.loads(response.choices[0].message.content)
+        except Exception as e:
+            logger.error(f"Error in API call: {e}", exc_info=True)
+            return {"title": "Error processing title", "summary": "Error processing summary"}
 
 async def get_embedding(text: str) -> List[float]:
     """Get embedding vector from OpenAI."""
@@ -253,7 +260,7 @@ async def add_manual_text(text: str):
     save_vector_data_offline([chunk])
 
 async def main():
-    choice = input("Choose an operation: 1) Crawl 2) Add Manual Text 3) CRUD Operations\\n")
+    choice = input("Choose an operation: 1) Crawl 2) Add Manual Text 3) CRUD Operations 4) Use Flash Model\\\n")
     if choice == '1':
         # Get URLs from Pydantic AI docs
         urls = get_pydantic_ai_docs_urls()
@@ -264,10 +271,14 @@ async def main():
         print(f"Found {len(urls)} URLs to crawl")
         await crawl_parallel(urls)
     elif choice == '2':
-        text = input("Enter the text to add manually:\\n")
+        text = input("Enter the text to add manually:\\\n")
         await add_manual_text(text)
     elif choice == '3':
         print("CRUD operations are not yet implemented.")
+    elif choice == '4':
+        os.environ["USE_FLASH_MODEL"] = "true"
+        print("Using Gemi's Flash Model for processing.")
+        # Proceed with the operation using the flash model
     else:
         print("Invalid choice.")
 
