@@ -7,7 +7,7 @@ import time
 import random
 import logging
 from xml.etree import ElementTree
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from urllib.parse import urlparse
@@ -49,7 +49,7 @@ def chunk_text(text: str, max_tokens: int = 4000) -> List[str]:
     current_chunk = ""
     current_tokens = 0
 
-    for paragraph in text.split("\\n\\n"):
+    for paragraph in text.split("\\\n\\\n"):
         paragraph_tokens = num_tokens_from_string(paragraph)
         if current_tokens + paragraph_tokens > max_tokens:
             if current_chunk:
@@ -57,7 +57,7 @@ def chunk_text(text: str, max_tokens: int = 4000) -> List[str]:
             current_chunk = paragraph
             current_tokens = paragraph_tokens
         else:
-            current_chunk += "\\n\\n" + paragraph
+            current_chunk += "\\\n\\\n" + paragraph
             current_tokens += paragraph_tokens
 
     if current_chunk:
@@ -82,7 +82,7 @@ async def get_title_and_summary(chunk: str, url: str) -> Dict[str, str]:
             model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"URL: {url}\\n\\nContent:\\n{chunk[:1000]}..."}  # Send first 1000 chars for context
+                {"role": "user", "content": f"URL: {url}\\\n\\\nContent:\\\n{chunk[:1000]}..."}  # Send first 1000 chars for context
             ],
             response_format={ "type": "json_object" }
         ))
@@ -171,6 +171,9 @@ async def process_and_store_document(url: str, markdown: str):
         for chunk in processed_chunks
     ]
     await asyncio.gather(*insert_tasks)
+    
+    # Save vector data offline
+    save_vector_data_offline(processed_chunks)
 
 async def crawl_parallel(urls: List[str], max_concurrent: int = 5):
     """Crawl multiple URLs in parallel with a concurrency limit."""
@@ -226,15 +229,47 @@ def get_pydantic_ai_docs_urls() -> List[str]:
         print(f"Error fetching sitemap: {e}")
         return []
 
-async def main():
-    # Get URLs from Pydantic AI docs
-    urls = get_pydantic_ai_docs_urls()
-    if not urls:
-        print("No URLs found to crawl")
-        return
+def save_vector_data_offline(chunks: List[ProcessedChunk], filename: str = 'vector_data.json'):
+    """Save processed chunks and their embeddings to a local file."""
+    data = [chunk.__dict__ for chunk in chunks]
+    with open(filename, 'w') as f:
+        json.dump(data, f, indent=4)
+
+def load_vector_data_offline(filename: str = 'vector_data.json') -> List[ProcessedChunk]:
+    """Load vector data from a local file."""
+    with open(filename, 'r') as f:
+        data = json.load(f)
+    return [ProcessedChunk(**chunk) for chunk in data]
+
+async def add_manual_text(text: str):
+    """Add text manually for embedding and save it."""
+    # Process the text
+    chunk = await process_chunk(text, 0, "manual_input")
     
-    print(f"Found {len(urls)} URLs to crawl")
-    await crawl_parallel(urls)
+    # Insert into Supabase
+    await insert_chunk(chunk)
+    
+    # Save offline
+    save_vector_data_offline([chunk])
+
+async def main():
+    choice = input("Choose an operation: 1) Crawl 2) Add Manual Text 3) CRUD Operations\\n")
+    if choice == '1':
+        # Get URLs from Pydantic AI docs
+        urls = get_pydantic_ai_docs_urls()
+        if not urls:
+            print("No URLs found to crawl")
+            return
+        
+        print(f"Found {len(urls)} URLs to crawl")
+        await crawl_parallel(urls)
+    elif choice == '2':
+        text = input("Enter the text to add manually:\\n")
+        await add_manual_text(text)
+    elif choice == '3':
+        print("CRUD operations are not yet implemented.")
+    else:
+        print("Invalid choice.")
 
 if __name__ == "__main__":
     asyncio.run(main())
