@@ -52,7 +52,7 @@ def chunk_text(text: str, max_tokens: int = 4000) -> List[str]:
     current_chunk = ""
     current_tokens = 0
 
-    for paragraph in text.split("\\\\\\\n\\\\\\\n"):
+    for paragraph in text.split("\\\\\\\\n\\\\\\\\n"):
         paragraph_tokens = num_tokens_from_string(paragraph)
         if current_tokens + paragraph_tokens > max_tokens:
             if current_chunk:
@@ -60,7 +60,7 @@ def chunk_text(text: str, max_tokens: int = 4000) -> List[str]:
             current_chunk = paragraph
             current_tokens = paragraph_tokens
         else:
-            current_chunk += "\\\\\\\n\\\\\\\n" + paragraph
+            current_chunk += "\\\\\\\\n\\\\\\\\n" + paragraph
             current_tokens += paragraph_tokens
 
     if current_chunk:
@@ -91,7 +91,7 @@ async def get_title_and_summary(chunk: str, url: str) -> Dict[str, str]:
                 model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"URL: {url}\\\\\\\n\\\\\\\nContent:\\\\\\\n{chunk[:1000]}..."}  # Send first 1000 chars for context
+                    {"role": "user", "content": f"URL: {url}\\\\\\\\n\\\\\\\\nContent:\\\\\\\\n{chunk[:1000]}..."}  # Send first 1000 chars for context
                 ],
                 response_format={ "type": "json_object" }
             ))
@@ -162,18 +162,23 @@ async def insert_chunk(chunk: ProcessedChunk):
         print(f"Error inserting chunk: {e}")
         return None
 
-def get_file_size(url: str) -> int:
-    """Get the size of the file at the given URL."""
-    response = requests.head(url)
-    return int(response.headers.get('content-length', 0))
+def check_file_size(url: str) -> int:
+    """Retrieve the size of a file from a given URL."""
+    try:
+        response = requests.head(url)
+        response.raise_for_status()
+        return int(response.headers.get('content-length', 0))
+    except requests.RequestException as e:
+        logging.error(f"Failed to get file size for {url}: {e}")
+        return 0
 
 async def process_and_store_document(url: str, markdown: str):
     """Process a document and store its chunks in parallel."""
-    current_file_size = get_file_size(url)
+    current_file_size = check_file_size(url)
     local_data = load_vector_data_offline(url)
     
     if local_data and local_data['file_size'] == current_file_size:
-        print(f"Loading vector data from local storage for {url}")
+        logging.info(f"Loading vector data from local storage for {url}")
         return local_data['chunks']
     
     # Split into chunks
@@ -195,9 +200,6 @@ async def process_and_store_document(url: str, markdown: str):
     
     # Save vector data offline
     save_vector_data_offline(url, processed_chunks, current_file_size)
-    
-    # Save vector data offline
-    save_vector_data_offline(processed_chunks)
 
 async def crawl_parallel(urls: List[str], max_concurrent: int = 5):
     """Crawl multiple URLs in parallel with a concurrency limit."""
@@ -323,12 +325,12 @@ async def main(args):
         text_input = args.add_text
         await add_manual_text(text_input)
     elif args.crud:
-        print("CRUD operations are not yet implemented.")
+        logging.info("CRUD operations are not yet implemented.")
     elif args.use_flash_model:
         os.environ["USE_FLASH_MODEL"] = "true"
-        print("Using Gemi's Flash Model for processing.")
+        logging.info("Using Gemi's Flash Model for processing.")
     else:
-        print("No valid operation specified.")
+        logging.warning("No valid operation specified.")
 
 if __name__ == "__main__":
     args = parse_arguments()
